@@ -1,0 +1,222 @@
+
+<html>
+
+<head>
+<title>Aprende webGL &mdash; Leccion 1</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+<script type="text/javascript" src="gl-matrix.js"></script>
+
+<!-- Estas dos funciones shaders, escritas en GLSL, se comunican con la tarjeta grafica-->
+<script id="shader-fs" type="x-shader/x-fragment">
+    #ifdef GL_ES
+    precision highp float;
+    #endif
+
+    void main(void) {
+        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec3 aVertexPosition;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+    void main(void) {
+        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+    }
+</script>
+
+
+<script type="text/javascript">
+
+    var gl;
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("experimental-webgl");
+            gl.viewportWidth = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+            alert("No puede iniciarse webGL en este navegador");
+        }
+    }
+
+    //Esta funcion es la que se envarga de extraer el contenido de javascript y pasarla a webGL
+    //para que lo compile en la tarjeta grafica
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var str = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                str += k.textContent;
+            }
+            k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+
+    var shaderProgram;
+
+    function initShaders() {
+        //Obtiene dos objetos, fragmento y vertice shader y luego los une en programa shader.
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("No pueden iniciarse los shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        //Asociamos al programa shader una referencia de atributo.
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+        //recuperamos los valores de localizaciones de matrices uniformes.
+        shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+        shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+    }
+
+
+    //Matriz modelo-vista y proyeccion
+    var mvMatrix = mat4.create();
+    var pMatrix = mat4.create();
+    //Mueve las matrices modelo-vista y proyeccion de javascript a webGL
+    function setMatrixUniforms() {
+        gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+        gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+    }
+
+
+    //Variables globales donde mantener los buffers.
+    var triangleVertexPositionBuffer;
+    var squareVertexPositionBuffer;
+
+    function initBuffers() {
+        //Creamos un buffer que guardamos en la tarjeta grafica
+        triangleVertexPositionBuffer = gl.createBuffer();
+        //Cualquier operacion posterior, se hará sobre el buffer recien creado:
+        gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
+        //Posiciones de los vertices en 3D
+        var vertices = [
+             0.0,  1.0,  0.0,
+            -1.0, -1.0,  0.0,
+             1.0, -1.0,  0.0
+        ];
+        //Creamos objeto de tipo float32array basado en estos vertices y que los rellene en el buffer actual
+        //Es una forma de convertir una lista de javascript en datos de webGL
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        triangleVertexPositionBuffer.itemSize = 3;
+        triangleVertexPositionBuffer.numItems = 3;
+
+        //Lo mismo con el cuadrado
+        squareVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+        vertices = [
+             1.0,  1.0,  0.0,
+            -1.0,  1.0,  0.0,
+             1.0, -1.0,  0.0,
+            -1.0, -1.0,  0.0
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        squareVertexPositionBuffer.itemSize = 3;
+        squareVertexPositionBuffer.numItems = 4;
+    }
+
+
+    function drawScene() {
+        //Esto dira a webGL en que parte del canvas puede pintar
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        
+        //Montamos la perspectiva, campo de vision vertial de 45º
+        //No queremos ver las cosas que esten a menos de 0.1 puntos de distancia
+        //Ni mas de 100.
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+
+        //Nos movemos al centro de la escena:
+        mat4.identity(mvMatrix);
+
+        //Movemos el triangulo al lado izquierdo, y alejandonos en el z negativo
+        mat4.translate(mvMatrix, [-1.5, 0.0, -7.0]);
+        //Cargamos lo que haya en el buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, triangleVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        //Almacene en memoria grafica la vista actual
+        setMatrixUniforms();
+        //Y lo dibujamos, desde el elemento 0 al numItems.
+        gl.drawArrays(gl.TRIANGLES, 0, triangleVertexPositionBuffer.numItems);
+
+        
+        //Lo mismo con el cuadrado
+        mat4.translate(mvMatrix, [3.0, 1.0, 0.0]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        setMatrixUniforms();
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, squareVertexPositionBuffer.numItems);
+    }
+
+
+
+    function webGLStart() {
+        var canvas = document.getElementById("testingwebGL");
+        //le pasamos a la funcion de inicio un objeto que apunta al elemento canvas
+        initGL(canvas);
+        initShaders();  //Sombreado
+        initBuffers();  //Memorias donde se mantienen los detalles de los objetos a dibujar
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);   //Los objetos que se pintan delante ocultaran a los de atras
+
+        drawScene();    //Dibuja la escena usando los bufers
+    }
+
+
+</script>
+
+
+</head>
+
+<!-- Este es el cuerpo de la funcion, donde podremos poner mas codigo html,
+pero para probar el webGL unicamente llamaremos a la funcion webGlStart
+que esta en javascript-->
+
+<body onload="webGLStart();">
+
+    <canvas id="testingwebGL" style="border: none;" width="500" height="500"></canvas>
+
+</body>
+
+</html>
